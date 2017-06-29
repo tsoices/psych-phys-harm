@@ -1,0 +1,604 @@
+---
+title: "Behavioral and ROI-based analyses"
+output:
+  html_notebook:
+    code_folding: hide
+    highlight: tango
+    theme: united
+    toc: yes
+    toc_depth: 5
+    toc_float: yes
+date: '`r format(Sys.time(), "%B %d, %Y")`'
+params:
+  directory: ~/Desktop
+---
+
+```{r global_options}
+knitr::opts_chunk$set(warning=FALSE, message=FALSE)
+options(scipen=0, digits=4)
+```
+
+# Introduction
+
+Below are code and outputs for the ROI-based analyses in the submitted manuscript: "Neural substrates for moral judgments of psychological versus physical harm".
+
+To see larger versions of any figure, right-click, copy image location, and paste the address to a new tab on your browser.
+
+If you have any questions and/or comments, please email Lily Tsoi: lily [dot] tsoi [at] bc [dot] edu. 
+
+# Packages
+
+Install packages and load libraries
+```{r, warning=FALSE, results='hide'}
+packages <- c("rmarkdown", "knitr", "tidyverse", "broom", "lme4", "ordinal", "lsmeans")
+packages_new <- packages[!(packages %in% installed.packages()[,"Package"])]
+if(length(packages_new)) install.packages(packages_new)
+lapply(packages,library,character.only=T)
+```
+
+# Data import
+
+Raw data can be found on this site: TBD
+
+Analyses require the following files:
+
+* PSYCH-PHYS_ROI_PSCs.csv
+* ROI_mvpa_results.csv
+
+Make sure these files are in the same directory.
+
+```{r}
+files <- c("ROI_PSCs.csv", "ROI_MVPA.csv")
+
+dat_names <- c("dat_psc_orig", "dat_mvpa_orig")
+
+for(i in 1:length(files)) {
+  assign(dat_names[i], read.csv(paste(params$directory, files[i], sep='/')))
+}
+```
+
+# Data organization
+
+Organize data for ROI univariate analyses
+
+```{r}
+# filter by time points and conditions of interest
+dat_psc_long <- dat_psc_orig %>% 
+  filter(Timepoint >=6 & Timepoint <28) %>%
+  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
+  group_by(Subject, Violation, ROI, Group, Item, Key) %>%
+  summarise(PSC=mean(PSC))
+
+dat_psc_long <- droplevels.data.frame(dat_psc_long)
+dat_psc_long$Item <- as.factor(dat_psc_long$Item)
+
+dat_psc_orig$Group <- factor(dat_psc_orig$Group, levels=c("NT", "ASD"))
+dat_psc_orig$Violation <- factor(dat_psc_orig$Violation, levels=c("PH", "PS", "N"))
+```
+
+Organize data for ROI MVPA
+
+```{r}
+# transform data to long format
+dat_mvpa_long <- dat_mvpa_orig %>%
+  gather(cond, acc, which(regexpr("_", colnames(.)) > 0)) %>%
+  separate(cond, c("roi", "type"), extra="drop")
+```
+
+Organize data for behavioral plots
+
+```{r}
+# calculate mean rating as variable on y-axis
+dat_behav <- dat_psc_orig%>%
+  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
+  group_by(Subject, Violation, Group, Item, Key) %>%
+  summarise(mean=mean(Key))
+dat_behav <- droplevels.data.frame(dat_behav)
+dat_behav$Item <- match(dat_behav$Item, unique(sort(dat_behav$Item))) # ordering items such that it doesn't care about purity items
+```
+
+Analyses are based on the following:
+
+* Number of NT participants: `r nlevels(unique(droplevels(dat_psc_orig$Subject[dat_psc_orig$Group == 'NT'])))` 
+* Number of ASD participants: `r nlevels(unique(droplevels(dat_psc_orig$Subject[dat_psc_orig$Group == 'ASD'])))`
+* Number of total participants: `r nlevels(dat_psc_orig$Subject)`
+
+# Behavioral results {.tabset}
+
+Examining behavioral responses in the scanner
+
+* DV: rating (1-4)
+* predictors: Condition (physical, psychological, neutral), Group (NT, ASD)
+
+## Ratings by condition and group
+
+```{r, fig.height=3, fig.width=6}
+
+ggplot(dat_behav, aes(x=Violation, y=mean, color=Violation)) +
+  stat_summary(fun.data="mean_cl_boot", position=position_dodge(0.2), size=1) +
+  ylim(1,4) +
+  facet_wrap(~Group, ncol=2, labeller=labeller(Group=c(NT="Neurotypical", ASD="ASD")), scales="free_y") +
+  scale_x_discrete(labels=c('Physical','Psychological', 'Neutral')) +
+  scale_colour_manual(name="Condition", labels=c("Physical", "Psychological", "Neutral"), values=c("red", "darkorchid4", "slategray")) +
+  ylab("Rating\n(1=not at all, 4=very)") +
+  xlab("Condition") +
+  theme_bw() +
+  theme(axis.text=element_text(size=12),
+        axis.title=element_text(size=16,face="bold"),
+        axis.title.y=element_text(margin=margin(r=18)),
+        axis.title.x=element_text(margin=margin(t=18)),
+        plot.title=element_text(size=18,face="bold", margin=margin(b=20), hjust=0.5),
+        legend.text=element_text(size=14),
+        legend.title=element_text(size=14,face="bold"),
+        strip.text=element_text(size=14),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank())
+```
+
+## Ratings by item and group
+
+```{r, fig.height=3, fig.width=6}
+
+ggplot(dat_behav, aes(y=mean, x=Item, color=Violation)) +
+  stat_summary(fun.data="mean_cl_boot", na.rm=TRUE) +
+  ylim(1,4) +
+  facet_wrap(~Group, ncol=2, labeller=labeller(Group=c(NT="Neurotypical", ASD="ASD")), scales="free_y") +
+  scale_colour_manual(name="Condition", labels=c("Physical", "Psychological", "Neutral"), values=c("red", "darkorchid4", "slategray")) +
+  ylab("Rating\n(1=not at all, 4=very)") +
+  xlab("Item") +
+  theme_bw() +
+  theme(axis.text=element_text(size=12),
+        axis.title=element_text(size=16,face="bold"),
+        axis.title.y=element_text(margin=margin(r=18)),
+        axis.title.x=element_text(margin=margin(t=18)),
+        plot.title=element_text(size=18,face="bold", margin=margin(b=20), hjust=0.5),
+        legend.text=element_text(size=14),
+        legend.title=element_text(size=14,face="bold"),
+        strip.text=element_text(size=14),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank())
+```
+
+## Analyses
+
+Define the model
+```{r}
+dat_behav$Key <- factor(dat_behav$Key)
+model_behav <- clmm(Key ~ Violation*Group + (1|Subject) + (1|Item), 
+                    data=dat_behav,
+                    link="probit",
+                    na.action=na.omit)
+```
+
+Test interaction between Group and Condition
+
+```{r}
+anova(model_behav, update(model_behav, . ~ . -Violation:Group))
+```
+
+Test main effect of condition
+
+```{r}
+anova(update(model_behav, . ~ . - Violation:Group), update(model_behav, . ~ . - Violation:Group - Violation))
+
+```
+
+# ROI-based univariate results
+
+## NT
+
+Subset data to NT group only and define model
+
+```{r}
+data_nt <- subset(dat_psc_long, Group == "NT")
+
+model_nt <- lmer(PSC ~ 
+                   Violation*ROI +
+                   (1|Subject) + (1|Item), data=data_nt, REML=FALSE)
+model_nt_1 <- lmer(PSC ~ 
+                     Violation*ROI +
+                     (Violation|Subject) + (1|Item), data=data_nt, REML=FALSE)
+```
+
+Test the condition x ROI interaction
+
+```{r}
+anova(model_nt, update(model_nt, . ~ . - Violation:ROI))
+```
+
+Test the main effect of condition
+
+```{r}
+anova(update(model_nt, . ~ . - Violation:ROI), update(model_nt, . ~ . - Violation:ROI - Violation))
+
+# test pairwise contrasts
+lsmeans(model_nt, pairwise ~ Violation)
+```
+
+Test whether including random slope of condition improves model
+
+```{r, echo=TRUE}
+anova(model_nt, model_nt_1)
+```
+
+Figure: time course for each condition by ROI
+
+```{r, fig.height=6, fig.width=12}
+dat_psc_orig$ROI <- factor(dat_psc_orig$ROI, levels=c("RTPJ", "LTPJ", "PC", "DMPFC"))
+dat_psc_orig$Violation <- factor(dat_psc_orig$Violation, levels=c("PS", "PH", "N"))
+dat_psc_nt <- dat_psc_orig%>% 
+  filter(Group == 'NT' & (Violation == 'PH' | Violation == 'PS' | Violation == 'N')) %>%
+  group_by(Subject, Violation, ROI, Timepoint) %>%
+  summarise(PSC=mean(PSC))
+cols <- c("PS"="darkorchid4", "PH"="red", "N"="slategray")
+rois <- c(RTPJ="rTPJ", LTPJ="lTPJ", PC="precuneus", DMPFC="dmPFC")
+
+ggplot(dat_psc_nt, aes(y=PSC, x=Timepoint, color=Violation, fill=Violation)) +
+  geom_smooth(na.rm=TRUE) +
+  facet_wrap(~ROI, ncol=4, labeller=labeller(ROI=rois)) +
+  annotate("rect", xmin=5, xmax=27, ymin=-Inf, ymax=Inf, alpha=.1) +
+  scale_x_continuous(limits=c(0,28), breaks=seq(0,28,2)) +
+  ylab("Percent signal change (PSC)") +
+  xlab("Timepoint (s)") +
+  scale_fill_manual(name="Condition\n", labels=c("Psychological harm", "Physical harm", "Neutral act"), values=cols) +
+  scale_colour_manual(name="Condition\n", labels=c("Psychological harm", "Physical harm", "Neutral act"), values=cols) +
+  theme_bw() +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=24,face="bold"),
+        axis.title.y=element_text(margin=margin(r=20)),
+        axis.title.x=element_text(margin=margin(t=20)),
+        legend.text=element_text(size=20),
+        legend.title=element_text(size=24,face="bold"),
+        legend.key.size=unit(3, "lines"),
+        strip.text=element_text(size=28, face="bold"),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank())
+```
+
+Subset data by ROI (NT only) and define models
+```{r}
+dat_rtpj_nt <- subset(dat_psc_long, ROI == "RTPJ" & Group == "NT")
+dat_ltpj_nt <- subset(dat_psc_long, ROI == "LTPJ" & Group == "NT")
+dat_pc_nt <- subset(dat_psc_long, ROI == "PC" & Group == "NT")
+dat_dmpfc_nt <- subset(dat_psc_long, ROI == "DMPFC" & Group == "NT")
+
+model_rtpj_nt <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_rtpj_nt, REML=FALSE)
+model_ltpj_nt <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_ltpj_nt, REML=FALSE)
+model_pc_nt <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_pc_nt, REML=FALSE)
+model_dmpfc_nt <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_dmpfc_nt, REML=FALSE)
+```
+
+### rTPJ
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_rtpj_nt, pairwise ~ Violation)
+```
+
+### lTPJ
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_ltpj_nt, pairwise ~ Violation)
+```
+
+### precuneus
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_pc_nt, pairwise ~ Violation)
+```
+
+### dmPFC
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_dmpfc_nt, pairwise ~ Violation)
+```
+
+
+## ASD
+
+Subset data to ASD group only and define model
+
+```{r}
+data_asd <- subset(dat_psc_long, Group == "ASD")
+
+model_asd <- lmer(PSC ~ 
+                   Violation*ROI +
+                   (1|Subject) + (1|Item), data=data_asd, REML=FALSE)
+
+# model with slope of condition does not converge, so no comparison will be made between model w/ slope and model w/o slope.
+# model_asd_1 <- lmer(PSC ~ 
+#                      Violation*ROI +
+#                      (Violation|Subject) + (1|Item), data=data_asd, REML=FALSE)
+```
+
+Test the condition x ROI interaction
+
+```{r}
+anova(model_asd, update(model_asd, . ~ . - Violation:ROI))
+```
+
+Test the main effect of condition
+
+```{r}
+anova(update(model_asd, . ~ . - Violation:ROI), update(model_asd, . ~ . - Violation:ROI - Violation))
+
+# test pairwise contrasts
+lsmeans(model_asd, pairwise ~ Violation)
+```
+
+Figure: time course by condition for each ROI
+
+```{r, fig.height=6, fig.width=12}
+dat_psc_orig$ROI <- factor(dat_psc_orig$ROI, levels=c("RTPJ", "LTPJ", "PC", "DMPFC"))
+dat_psc_orig$Violation <- factor(dat_psc_orig$Violation, levels=c("PS", "PH", "N"))
+dat_psc_asd <- dat_psc_orig%>% 
+  filter(Group == 'ASD' & (Violation == 'PH' | Violation == 'PS' | Violation == 'N')) %>%
+  group_by(Subject, Violation, ROI, Timepoint) %>%
+  summarise(PSC=mean(PSC))
+cols <- c("PS"="darkorchid4", "PH"="red", "N"="slategray")
+rois <- c(RTPJ="rTPJ", LTPJ="lTPJ", PC="precuneus", DMPFC="dmPFC")
+
+ggplot(dat_psc_asd, aes(y=PSC, x=Timepoint, color=Violation, fill=Violation)) +
+  geom_smooth(na.rm=TRUE) +
+  facet_wrap(~ROI, ncol=4, labeller=labeller(ROI=rois)) +
+  annotate("rect", xmin=5, xmax=27, ymin=-Inf, ymax=Inf, alpha=.1) +
+  scale_x_continuous(limits=c(0,28), breaks=seq(0,28,2)) +
+  ylab("Percent signal change (PSC)") +
+  xlab("Timepoint (s)") +
+  scale_fill_manual(name="Condition\n", labels=c("Psychological harm", "Physical harm", "Neutral act"), values=cols) +
+  scale_colour_manual(name="Condition\n", labels=c("Psychological harm", "Physical harm", "Neutral act"), values=cols) +
+  theme_bw() +
+  theme(axis.text=element_text(size=16),
+        axis.title=element_text(size=24,face="bold"),
+        axis.title.y=element_text(margin=margin(r=20)),
+        axis.title.x=element_text(margin=margin(t=20)),
+        legend.text=element_text(size=20),
+        legend.title=element_text(size=24,face="bold"),
+        legend.key.size=unit(3, "lines"),
+        strip.text=element_text(size=28, face="bold"),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank())
+```
+
+Subset data by ROI (ASD only) and define models
+```{r}
+dat_rtpj_asd <- subset(dat_psc_long, ROI == "RTPJ" & Group == "ASD")
+dat_ltpj_asd <- subset(dat_psc_long, ROI == "LTPJ" & Group == "ASD")
+dat_pc_asd <- subset(dat_psc_long, ROI == "PC" & Group == "ASD")
+dat_dmpfc_asd <- subset(dat_psc_long, ROI == "DMPFC" & Group == "ASD")
+
+model_rtpj_asd <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_rtpj_asd, REML=FALSE)
+model_ltpj_asd <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_ltpj_asd, REML=FALSE)
+model_pc_asd <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_pc_asd, REML=FALSE)
+model_dmpfc_asd <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
+                   dat=dat_dmpfc_asd, REML=FALSE)
+```
+
+### rTPJ
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_rtpj_asd, pairwise ~ Violation)
+```
+
+### lTPJ
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_ltpj_asd, pairwise ~ Violation)
+```
+
+### precuneus
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_pc_asd, pairwise ~ Violation)
+```
+
+### dmPFC
+
+```{r}
+# test pairwise contrasts
+lsmeans(model_dmpfc_asd, pairwise ~ Violation)
+```
+
+
+## NT vs ASD
+
+Define the models
+```{r}
+dat_rtpj <- subset(dat_psc_long, ROI == "RTPJ")
+dat_ltpj <- subset(dat_psc_long, ROI == "LTPJ")
+dat_pc <- subset(dat_psc_long, ROI == "PC")
+dat_dmpfc <- subset(dat_psc_long, ROI == "DMPFC")
+
+model_rtpj <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
+                   dat=dat_rtpj, REML=FALSE)
+model_ltpj <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
+                   dat=dat_ltpj, REML=FALSE)
+model_pc <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
+                   dat=dat_pc, REML=FALSE)
+model_dmpfc <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
+                   dat=dat_dmpfc, REML=FALSE)
+```
+
+### Test interaction: Condition * Group
+
+#### rTPJ
+
+```{r}
+anova(model_rtpj, update(model_rtpj, . ~ . -Violation:Group))
+```
+
+#### lTPJ
+
+```{r}
+anova(model_ltpj, update(model_ltpj, . ~ . -Violation:Group))
+```
+
+#### precuneus
+
+```{r}
+anova(model_pc, update(model_pc, . ~ . -Violation:Group))
+```
+
+#### dmPFC
+
+```{r}
+anova(model_dmpfc, update(model_dmpfc, . ~ . -Violation:Group))
+```
+
+### Test main effect: Condition
+
+#### rTPJ
+
+```{r}
+anova(update(model_rtpj, . ~ . -Violation:Group), update(model_rtpj, . ~ . -Violation:Group -Violation))
+```
+
+#### lTPJ
+
+```{r}
+anova(update(model_ltpj, . ~ . -Violation:Group), update(model_ltpj, . ~ . -Violation:Group -Violation))
+```
+
+#### precuneus
+
+```{r}
+anova(update(model_pc, . ~ . -Violation:Group), update(model_pc, . ~ . -Violation:Group -Violation))
+```
+
+#### dmPFC
+
+```{r}
+anova(update(model_dmpfc, . ~ . -Violation:Group), update(model_dmpfc, . ~ . -Violation:Group -Violation))
+```
+
+### Test main effect: Group
+
+#### rTPJ
+
+```{r}
+anova(update(model_rtpj, . ~ . -Violation:Group), update(model_rtpj, . ~ . -Violation:Group -Group))
+```
+
+#### lTPJ
+
+```{r}
+anova(update(model_ltpj, . ~ . -Violation:Group), update(model_ltpj, . ~ . -Violation:Group -Group))
+```
+
+#### precuneus
+
+```{r}
+anova(update(model_pc, . ~ . -Violation:Group), update(model_pc, . ~ . -Violation:Group -Group))
+```
+
+#### dmPFC
+
+```{r}
+anova(update(model_dmpfc, . ~ . -Violation:Group), update(model_dmpfc, . ~ . -Violation:Group -Group))
+```
+
+# ROI-based MVPA results
+
+## Comparing mean accuracies to chance (50%)
+
+```{r, rows.print=16}
+mvpa_res <- matrix(nrow=0, ncol=6,
+                   dimnames=list(NULL, c("group","col", "t", "df", "p.value", "estimate")))
+groups <- levels(dat_mvpa_orig$group)
+
+for (cl in 3:ncol(dat_mvpa_orig)) {
+  for (grp in groups) {
+    temp <- dat_mvpa_orig[dat_mvpa_orig$group == grp, cl]
+    mvpa_res <- rbind(mvpa_res, c(grp, colnames(dat_mvpa_orig)[cl],
+                                  unlist(t.test(temp, mu=.5, alternative="greater"))[c(1, 2, 3, 6)]))
+  }
+}
+
+# tidy up results
+mvpa_res <- tidy(mvpa_res)
+mvpa_res[,3:6] <- lapply(mvpa_res[,3:6], function(x) as.numeric(as.character(x)))
+
+mvpa_res
+```
+
+## Comparing mean accuracies of experimental tests vs. permutation tests
+
+```{r, cols.print=8}
+mvpa_res_exp_vs_perm <- matrix(nrow=0, ncol=8,
+                               dimnames=list(NULL, c("group","col1", "col2", "t", "df", "p.value", "estimate.of.exp","estimate.of.perm")))
+groups <- levels(dat_mvpa_orig$group)
+
+for (cl in seq(3, ncol(dat_mvpa_orig), by=2)) {
+  for (grp in groups) {
+    temp1 <- dat_mvpa_orig[dat_mvpa_orig$group == grp, cl]
+    temp2 <- dat_mvpa_orig[dat_mvpa_orig$group == grp, cl+1]
+    mvpa_res_exp_vs_perm <- rbind(mvpa_res_exp_vs_perm, c(grp, colnames(dat_mvpa_orig)[cl], colnames(dat_mvpa_orig)[cl + 1],
+                                                          unlist(t.test(temp1, temp2, alternative="greater"))[c(1, 2, 3, 6, 7)]))
+  }
+}
+
+# tidy up results
+mvpa_res_exp_vs_perm <- tidy(mvpa_res_exp_vs_perm)
+mvpa_res_exp_vs_perm[,4:8] <- lapply(mvpa_res_exp_vs_perm[,4:8], function(x) as.numeric(as.character(x)))
+
+mvpa_res_exp_vs_perm
+```
+
+## Comparing mean accuracies of NT group vs. ASD group
+
+```{r}
+mvpa_res_nt_vs_asd <- matrix(nrow=0, ncol=6,
+                             dimnames=list(NULL, c("col", "t", "df", "p.value", "estimate of NT", "estimate of ASD")))
+groups <- levels(dat_mvpa_orig$group)
+
+for (cl in 3:ncol(dat_mvpa_orig)) {
+  temp1 <- dat_mvpa_orig[dat_mvpa_orig$group == 'NT', cl]
+  temp2 <- dat_mvpa_orig[dat_mvpa_orig$group == 'ASD', cl]
+  mvpa_res_nt_vs_asd <- rbind(mvpa_res_nt_vs_asd, c(colnames(dat_mvpa_orig)[cl],
+                                                    unlist(t.test(temp1, temp2, alternative="two.sided"))[c(1, 2, 3, 6, 7)]))
+}
+
+# tidy up results
+mvpa_res_nt_vs_asd <- tidy(mvpa_res_nt_vs_asd)
+mvpa_res_nt_vs_asd[,2:6] <- lapply(mvpa_res_nt_vs_asd[,2:6], function(x) as.numeric(as.character(x)))
+
+mvpa_res_nt_vs_asd
+
+```
+
+## Figure: classification accuracies
+
+```{r, fig.height=3, fig.width=6}
+
+dat_mvpa_plot <- dat_mvpa_long
+dat_mvpa_plot$roi <- factor(dat_mvpa_plot$roi, levels=c("RTPJ", "LTPJ", "PC", "DMPFC"))
+dat_mvpa_plot$group <- factor(dat_mvpa_plot$group, levels=c("NT", "ASD"))
+
+ggplot(dat_mvpa_plot, aes(y=acc, x=type)) +
+  stat_summary(fun.data="mean_cl_boot", position=position_dodge(0.4)) +
+  facet_grid(group ~ roi, labeller=labeller(roi=c(RTPJ="rTPJ", LTPJ="lTPJ", PC="precuneus", DMPFC="dmPFC"))) +
+  geom_hline(yintercept=.50) +
+  ylab("Classification accuracy") +
+  scale_x_discrete("Test type\n", labels=c("exp"="Experimental", "perm"="Permutation")) + 
+  theme_bw() +
+  theme(axis.text=element_text(size=14),
+        axis.title=element_text(size=16,face="bold"),
+        axis.title.y=element_text(margin=margin(r=20)),
+        axis.title.x=element_text(margin=margin(t=20)),
+        strip.text=element_text(size=16, face="bold"),
+        panel.grid.major.x=element_blank(),
+        panel.grid.major.y=element_blank())
+```
