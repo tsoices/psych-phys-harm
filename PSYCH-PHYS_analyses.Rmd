@@ -38,7 +38,7 @@ lapply(packages,library,character.only=T)
 
 # Data import
 
-Raw data can be found on this site: TBD
+Data files can be found on GitHub: https://github.com/tsoices/psych-phys-harm
 
 Analyses require the following files:
 
