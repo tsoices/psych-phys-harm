@@ -55,46 +55,10 @@ dat_names <- c("dat_psc_orig", "dat_mvpa_orig")
 for(i in 1:length(files)) {
   assign(dat_names[i], read.csv(paste(params$directory, files[i], sep='/')))
 }
-```
 
-# Data organization
-
-Organize data for ROI univariate analyses
-
-```{r}
-# filter by time points and conditions of interest
-dat_psc_long <- dat_psc_orig %>% 
-  filter(Timepoint >=6 & Timepoint <28) %>%
-  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
-  group_by(Subject, Violation, ROI, Group, Item, Key) %>%
-  summarise(PSC=mean(PSC))
-
-dat_psc_long <- droplevels.data.frame(dat_psc_long)
-dat_psc_long$Item <- as.factor(dat_psc_long$Item)
-
+# change the order of levels
 dat_psc_orig$Group <- factor(dat_psc_orig$Group, levels=c("NT", "ASD"))
 dat_psc_orig$Violation <- factor(dat_psc_orig$Violation, levels=c("PH", "PS", "N"))
-```
-
-Organize data for ROI MVPA
-
-```{r}
-# transform data to long format
-dat_mvpa_long <- dat_mvpa_orig %>%
-  gather(cond, acc, which(regexpr("_", colnames(.)) > 0)) %>%
-  separate(cond, c("roi", "type"), extra="drop")
-```
-
-Organize data for behavioral plots
-
-```{r}
-# calculate mean rating as variable on y-axis
-dat_behav <- dat_psc_orig%>%
-  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
-  group_by(Subject, Violation, Group, Item, Key) %>%
-  summarise(mean=mean(Key))
-dat_behav <- droplevels.data.frame(dat_behav)
-dat_behav$Item <- match(dat_behav$Item, unique(sort(dat_behav$Item))) # ordering items such that it doesn't care about purity items
 ```
 
 Analyses are based on the following:
@@ -109,6 +73,21 @@ Examining behavioral responses in the scanner
 
 * DV: rating (1-4)
 * predictors: Condition (physical, psychological, neutral), Group (NT, ASD)
+
+**Data organization**
+
+Organize behavioral data
+
+```{r}
+# calculate mean rating as variable on y-axis
+dat_behav <- dat_psc_orig%>%
+  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
+  group_by(Subject, Violation, Group, Item, Key) %>%
+  summarise(mean=mean(Key)) %>%
+  droplevels.data.frame(.)
+
+dat_behav$Item <- match(dat_behav$Item, unique(sort(dat_behav$Item))) # ordering items such that it doesn't care about purity items
+```
 
 ## Ratings by condition and group
 
@@ -181,9 +160,44 @@ Test main effect of condition
 ```{r}
 anova(update(model_behav, . ~ . - Violation:Group), update(model_behav, . ~ . - Violation:Group - Violation))
 
+lsmeans(model_behav, pairwise ~ Violation)
+
 ```
 
 # ROI-based univariate results
+
+**Data organization**
+
+Analyses described here are over the entire time course. Future versions of this document will let you select a time window and automatically refresh the outputs related to that time window.
+
+Time points of interest (seconds):
+
+* entire time course:       6-26
+* background:               6-10
+* action:                   12-14
+* outcome:                  16-18
+* intent:                   20-22
+* judgment:                 24-26
+
+
+```{r}
+time_entire <- dat_psc_orig %>% filter(Timepoint >= 6 & Timepoint <= 26)
+time_background <- dat_psc_orig %>% filter(Timepoint >= 6 & Timepoint <= 10)
+time_action <- dat_psc_orig %>% filter(Timepoint >= 12 & Timepoint <= 14)
+time_outcome <- dat_psc_orig %>% filter(Timepoint >= 16 & Timepoint <= 18)
+time_intent <- dat_psc_orig %>% filter(Timepoint >= 20 & Timepoint <= 22)
+time_judgment <- dat_psc_orig %>% filter(Timepoint >= 24 & Timepoint <= 26)
+
+dat_psc_long <- 
+  time_entire %>% 
+  filter(Violation == 'PH' | Violation == 'PS' | Violation == 'N') %>%
+  group_by(Subject, Violation, ROI, Group, Item, Key) %>%
+  summarise(PSC=mean(PSC)) %>%
+  droplevels.data.frame(.)
+
+dat_psc_long$Item <- as.factor(dat_psc_long$Item)
+
+```
 
 ## NT
 
@@ -272,28 +286,28 @@ model_dmpfc_nt <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
                    dat=dat_dmpfc_nt, REML=FALSE)
 ```
 
-### rTPJ
+**rTPJ**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_rtpj_nt, pairwise ~ Violation)
 ```
 
-### lTPJ
+**lTPJ**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_ltpj_nt, pairwise ~ Violation)
 ```
 
-### precuneus
+**precuneus**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_pc_nt, pairwise ~ Violation)
 ```
 
-### dmPFC
+**dmPFC**
 
 ```{r}
 # test pairwise contrasts
@@ -384,28 +398,28 @@ model_dmpfc_asd <- lmer(PSC ~ Violation + (1|Subject) + (1|Item),
                    dat=dat_dmpfc_asd, REML=FALSE)
 ```
 
-### rTPJ
+**rTPJ**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_rtpj_asd, pairwise ~ Violation)
 ```
 
-### lTPJ
+**lTPJ**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_ltpj_asd, pairwise ~ Violation)
 ```
 
-### precuneus
+**precuneus**
 
 ```{r}
 # test pairwise contrasts
 lsmeans(model_pc_asd, pairwise ~ Violation)
 ```
 
-### dmPFC
+**dmPFC**
 
 ```{r}
 # test pairwise contrasts
@@ -430,81 +444,109 @@ model_pc <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
                    dat=dat_pc, REML=FALSE)
 model_dmpfc <- lmer(PSC ~ Violation*Group + (1|Subject) + (1|Item),
                    dat=dat_dmpfc, REML=FALSE)
+
+model_nt_vs_asd <- lmer(PSC ~ Violation*Group*ROI + (1|Subject) + (1|Item),
+                   dat=dat_psc_long, REML=FALSE)
 ```
 
-### Test interaction: Condition * Group
+**Test interaction: Condition x Group x ROI**
 
-#### rTPJ
+```{r}
+anova(update(model_nt_vs_asd, . ~ . -Violation:Group:ROI), update(model_nt_vs_asd, . ~ . -Violation:Group:ROI - Violation:Group))
+```
+
+**Test interaction: Condition x Group**
+
+```{r}
+anova(update(model_nt_vs_asd, . ~ . -Violation:Group:ROI), update(model_nt_vs_asd, . ~ . -Violation:Group:ROI - Violation:Group))
+```
+
+Subset data by ROI
+
+**rTPJ**
 
 ```{r}
 anova(model_rtpj, update(model_rtpj, . ~ . -Violation:Group))
 ```
 
-#### lTPJ
+**lTPJ**
 
 ```{r}
 anova(model_ltpj, update(model_ltpj, . ~ . -Violation:Group))
 ```
 
-#### precuneus
+**precuneus**
 
 ```{r}
 anova(model_pc, update(model_pc, . ~ . -Violation:Group))
 ```
 
-#### dmPFC
+**dmPFC**
 
 ```{r}
 anova(model_dmpfc, update(model_dmpfc, . ~ . -Violation:Group))
 ```
 
-### Test main effect: Condition
+**Test main effect: Condition**
 
-#### rTPJ
+
+```{r}
+anova(update(model_nt_vs_asd, . ~ . -Violation:Group:ROI -Violation:Group), update(model_nt_vs_asd, . ~ . -Violation:Group:ROI -Violation:Group -Violation))
+```
+
+Subset data by ROI
+
+**rTPJ**
 
 ```{r}
 anova(update(model_rtpj, . ~ . -Violation:Group), update(model_rtpj, . ~ . -Violation:Group -Violation))
 ```
 
-#### lTPJ
+**lTPJ**
 
 ```{r}
 anova(update(model_ltpj, . ~ . -Violation:Group), update(model_ltpj, . ~ . -Violation:Group -Violation))
 ```
 
-#### precuneus
+**precuneus**
 
 ```{r}
 anova(update(model_pc, . ~ . -Violation:Group), update(model_pc, . ~ . -Violation:Group -Violation))
 ```
 
-#### dmPFC
+**dmPFC**
 
 ```{r}
 anova(update(model_dmpfc, . ~ . -Violation:Group), update(model_dmpfc, . ~ . -Violation:Group -Violation))
 ```
 
-### Test main effect: Group
+**Test main effect: Group**
 
-#### rTPJ
+```{r}
+anova(update(model_nt_vs_asd, . ~ . -Violation:Group), update(model_nt_vs_asd, . ~ . -Violation:Group -Group))
+```
+
+Subset data by ROI
+
+**rTPJ**
 
 ```{r}
 anova(update(model_rtpj, . ~ . -Violation:Group), update(model_rtpj, . ~ . -Violation:Group -Group))
 ```
 
-#### lTPJ
+**lTPJ**
 
 ```{r}
 anova(update(model_ltpj, . ~ . -Violation:Group), update(model_ltpj, . ~ . -Violation:Group -Group))
 ```
 
-#### precuneus
+**precuneus**
 
 ```{r}
 anova(update(model_pc, . ~ . -Violation:Group), update(model_pc, . ~ . -Violation:Group -Group))
 ```
 
-#### dmPFC
+**dmPFC**
 
 ```{r}
 anova(update(model_dmpfc, . ~ . -Violation:Group), update(model_dmpfc, . ~ . -Violation:Group -Group))
@@ -512,7 +554,17 @@ anova(update(model_dmpfc, . ~ . -Violation:Group), update(model_dmpfc, . ~ . -Vi
 
 # ROI-based MVPA results
 
-## Comparing mean accuracies to chance (50%)
+**Data organization**
+
+```{r}
+# transform data to long format
+dat_mvpa_long <- dat_mvpa_orig %>%
+  gather(cond, acc, which(regexpr("_", colnames(.)) > 0)) %>%
+  separate(cond, c("roi", "type"), extra="drop")
+```
+
+
+**Comparing mean accuracies to chance (50%)**
 
 ```{r, rows.print=16}
 mvpa_res <- matrix(nrow=0, ncol=6,
@@ -534,7 +586,7 @@ mvpa_res[,3:6] <- lapply(mvpa_res[,3:6], function(x) as.numeric(as.character(x))
 mvpa_res
 ```
 
-## Comparing mean accuracies of experimental tests vs. permutation tests
+**Comparing mean accuracies of experimental tests vs. permutation tests**
 
 ```{r, cols.print=8}
 mvpa_res_exp_vs_perm <- matrix(nrow=0, ncol=8,
@@ -557,7 +609,7 @@ mvpa_res_exp_vs_perm[,4:8] <- lapply(mvpa_res_exp_vs_perm[,4:8], function(x) as.
 mvpa_res_exp_vs_perm
 ```
 
-## Comparing mean accuracies of NT group vs. ASD group
+**Comparing mean accuracies of NT group vs. ASD group**
 
 ```{r}
 mvpa_res_nt_vs_asd <- matrix(nrow=0, ncol=6,
@@ -579,7 +631,7 @@ mvpa_res_nt_vs_asd
 
 ```
 
-## Figure: classification accuracies
+Figure: classification accuracies
 
 ```{r, fig.height=3, fig.width=6}
 
